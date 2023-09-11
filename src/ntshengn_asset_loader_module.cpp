@@ -1117,6 +1117,8 @@ void NtshEngn::AssetLoaderModule::loadGltfAnimation(Model& model, cgltf_animatio
 	Animation animation;
 
 	for (size_t i = 0; i < node->channels_count; i++) {
+		AnimationChannel channel;
+
 		cgltf_animation_channel animationChannel = node->channels[i];
 
 		cgltf_node* animationTargetNode = animationChannel.target_node;
@@ -1132,19 +1134,36 @@ void NtshEngn::AssetLoaderModule::loadGltfAnimation(Model& model, cgltf_animatio
 		cgltf_animation_sampler* animationSampler = animationChannel.sampler;
 		switch (animationSampler->interpolation) {
 		case cgltf_interpolation_type_linear:
-			animation.interpolationType = AnimationInterpolationType::Linear;
+			channel.interpolationType = AnimationChannelInterpolationType::Linear;
 			break;
 
 		case cgltf_interpolation_type_step:
-			animation.interpolationType = AnimationInterpolationType::Step;
+			channel.interpolationType = AnimationChannelInterpolationType::Step;
 			break;
 
 		case cgltf_interpolation_type_cubic_spline:
-			animation.interpolationType = AnimationInterpolationType::CubicSpline;
+			channel.interpolationType = AnimationChannelInterpolationType::CubicSpline;
 			break;
 
 		default:
-			animation.interpolationType = AnimationInterpolationType::Unknown;
+			channel.interpolationType = AnimationChannelInterpolationType::Unknown;
+		}
+
+		switch (animationChannel.target_path) {
+		case cgltf_animation_path_type_translation:
+			channel.transformType = AnimationChannelTransformType::Translation;
+			break;
+
+		case cgltf_animation_path_type_rotation:
+			channel.transformType = AnimationChannelTransformType::Rotation;
+			break;
+
+		case cgltf_animation_path_type_scale:
+			channel.transformType = AnimationChannelTransformType::Scale;
+			break;
+
+		default:
+			channel.transformType = AnimationChannelTransformType::Unknown;
 		}
 		
 		cgltf_accessor* animationSamplerInputAccessor = animationSampler->input;
@@ -1157,35 +1176,28 @@ void NtshEngn::AssetLoaderModule::loadGltfAnimation(Model& model, cgltf_animatio
 		std::byte* animationSamplerOutputBuffer = static_cast<std::byte*>(animationSamplerOutputBufferView->buffer->data);
 		std::byte* animationSamplerOutputBufferOffset = animationSamplerOutputBuffer + animationSamplerOutputAccessor->offset + animationSamplerOutputBufferView->offset;
 
-		cgltf_animation_path_type animationPathType = animationChannel.target_path;
-
 		std::vector<AnimationKeyframe> keyframes;
 		for (size_t j = 0; j < animationSamplerInputAccessor->count; j++) {
 			AnimationKeyframe keyframe;
 			keyframe.timestamp = *(reinterpret_cast<float*>(animationSamplerInputBufferOffset) + j);
 			
-			AnimationJointTransform jointTransform;
-			switch (animationPathType) {
-			case cgltf_animation_path_type_translation:
-				keyframe.jointTransform.translation = reinterpret_cast<float*>(animationSamplerOutputBufferOffset);
+			switch (channel.transformType) {
+			case AnimationChannelTransformType::Translation:
+			case AnimationChannelTransformType::Scale:
+				keyframe.value = Math::vec4(Math::vec3(reinterpret_cast<float*>(animationSamplerOutputBufferOffset)), 0.0f);
 				animationSamplerOutputBufferOffset += sizeof(float) * 3;
 				break;
 
-			case cgltf_animation_path_type_rotation:
-				keyframe.jointTransform.rotation = { *(reinterpret_cast<float*>(animationSamplerOutputBufferOffset) + 3), *(reinterpret_cast<float*>(animationSamplerOutputBufferOffset) + 0), *(reinterpret_cast<float*>(animationSamplerOutputBufferOffset) + 1), *(reinterpret_cast<float*>(animationSamplerOutputBufferOffset) + 2) };
+			case AnimationChannelTransformType::Rotation:
+				keyframe.value = { *(reinterpret_cast<float*>(animationSamplerOutputBufferOffset) + 3), *(reinterpret_cast<float*>(animationSamplerOutputBufferOffset) + 0), *(reinterpret_cast<float*>(animationSamplerOutputBufferOffset) + 1), *(reinterpret_cast<float*>(animationSamplerOutputBufferOffset) + 2) };
 				animationSamplerOutputBufferOffset += sizeof(float) * 4;
-				break;
-
-			case cgltf_animation_path_type_scale:
-				keyframe.jointTransform.scale = reinterpret_cast<float*>(animationSamplerOutputBufferOffset);
-				animationSamplerOutputBufferOffset += sizeof(float) * 3;
 				break;
 			}
 
-			keyframes.push_back(keyframe);
+			channel.keyframes.push_back(keyframe);
 		}
 
-		animation.jointKeyframes[jointIndex] = keyframes;
+		animation.jointChannels[jointIndex].push_back(channel);
 	}
 
 	model.animations.push_back(animation);
